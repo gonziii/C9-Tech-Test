@@ -1,10 +1,7 @@
-﻿using Newtonsoft.Json;
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Xml.Linq;
 using Domain;
-using TechTestBackend.Client;
 using TechTestBackend.Models;
 
 namespace TechTestBackend.Services;
@@ -23,10 +20,10 @@ public class SpotifyService : ISpotifyService
         _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
     }
 
-    private async Task<string?> GetSpotifyToken()
+    private async Task<ResponseToken?> GetSpotifyToken()
     {
         var byteArray = Encoding.ASCII.GetBytes($"{_clientId}:{_clientSecret}");
-        var request = new HttpRequestMessage(HttpMethod.Post, "api/token")
+        var request = new HttpRequestMessage(HttpMethod.Post, "https://accounts.spotify.com/api/token")
         {
             Content = new StringContent("grant_type=client_credentials"),
         };
@@ -36,8 +33,8 @@ public class SpotifyService : ISpotifyService
         {
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<ResponseToken>(content);
-            return result?.AccessToken;
+            var result = JsonSerializer.Deserialize<ResponseToken>(content, _options);
+            return result;
         }
     }
 
@@ -48,15 +45,19 @@ public class SpotifyService : ISpotifyService
         {
             throw new Exception("Could not get token");
         }
-
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var request = new HttpRequestMessage(HttpMethod.Get, $"v1/search?q={name}&type=track");
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(token.TokenType, token.AccessToken);
+        var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.spotify.com/v1/search?q={name}&type=track");
         using (var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
         {
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
-            var songs = JsonConvert.DeserializeObject<List<SpotifySong>>(content);
-            return songs;
+            var songs = JsonSerializer.Deserialize<TracksModel>(content, _options);
+
+                return songs?.Tracks.Items.Select(x => new SpotifySong
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                }).ToList();
         }
     }
 
@@ -68,14 +69,20 @@ public class SpotifyService : ISpotifyService
             throw new Exception("Could not get token");
         }
 
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var request = new HttpRequestMessage(HttpMethod.Get, $"v1/tracks/{id}/");
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+        var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.spotify.com/v1/tracks/{id}/");
         using (var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
         {
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
-            var song = JsonConvert.DeserializeObject<SpotifySong>(content);
-            return song;
+            var song = JsonSerializer.Deserialize<TrackId>(content);
+            if (song != null)
+                return new SpotifySong
+                {
+                    Id = song.Id,
+                    Name = song.Name,
+                };
+            return null;
         }
     }
 }

@@ -1,8 +1,5 @@
-using Domain;
 using Domain.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using SpotifyDataRepository;
-using SpotifyDataRepository.Service;
 using TechTestBackend.Services;
 
 namespace TechTestBackend.Controllers;
@@ -22,16 +19,16 @@ public class SpotifyController : ControllerBase
 
     [HttpGet]
     [Route("searchTracks")]
-    public IActionResult SearchTracks(string name)
+    public async Task<IActionResult> SearchTracks(string name)
     {
         try
         {
-            var tracks = _spotifyService.GetTracks(name);
+            var tracks = await _spotifyService.GetTracks(name);
             return Ok(tracks);
         }
         catch (Exception exception)
         {
-            return NotFound(exception);
+            return BadRequest(exception);
         }
     }
 
@@ -39,18 +36,17 @@ public class SpotifyController : ControllerBase
     [Route("like")]
     public async Task<IActionResult> Like(string id)
     {
+        if (!IsCorrectSpotifyIdLength(id))
+            return BadRequest("Id length is not accepted");
+        
         try
         {
             var track = await _spotifyService.GetTrack(id);
-            if (track == null || id.Length == 22)
+            if (track == null)
             {
-                throw new ArgumentNullException();
+                throw new Exception("No track is found");
             }
-            _unitOfWork.Spotify.AddSong(new SpotifySong
-            {
-                Id = track.Id,
-                Name = track.Name
-            });
+            _unitOfWork.Spotify.AddSong(track);
             _unitOfWork.Complete();
             return Ok();
         }
@@ -65,18 +61,16 @@ public class SpotifyController : ControllerBase
     [Route("removeLike")]
     public async Task<IActionResult> RemoveLike(string id)
     {
+        if (!IsCorrectSpotifyIdLength(id))
+            return BadRequest("Id length is not accepted");
         try
         {
             var track = await _spotifyService.GetTrack(id);
-            if (track == null || id.Length == 22)
+            if (track == null)
             {
-                throw new ArgumentNullException();
+                throw new Exception("No track is found");
             }
-            _unitOfWork.Spotify.RemoveSong(new SpotifySong
-            {
-                Id = track.Id,
-                Name = track.Name
-            });
+            _unitOfWork.Spotify.RemoveSong(track);
             _unitOfWork.Complete();
             return Ok();
         }
@@ -91,77 +85,20 @@ public class SpotifyController : ControllerBase
     [Route("listLiked")]
     public IActionResult ListLiked()
     {
-        var songList = _unitOfWork.Spotify.GetAll();
-        object storage = HttpContext.RequestServices.GetService(typeof(SongStorageContext));
-
-        int songsnumber = ((SongStorageContext)storage).Songs.Count();
-        List<SpotifySong> songs = new List<SpotifySong>(); //((SongStorageContext)storage).Songs.ToList();
-
-        if (songsnumber > 0)
+        try
         {
-            for (int i = 0; i <= songsnumber - 1; i++)
-            {
-                string songid = ((SongStorageContext)HttpContext.RequestServices.GetService(typeof(SongStorageContext))).Songs.ToList()[i].Id;
-
-                var track = _spotifyService.GetTrack(songid);
-                if (track.Id == null)
-                {
-                    // TODO: remove song from database, but not sure how
-                }
-                else
-                {
-                    // not working for some reason so we have to do the check manually for now
-                    // if(SongExists(track.Id) == false)
-
-                    int numerofsong = songs.Count();
-                    for (int num = 0; num <= numerofsong; num++)
-                    {
-                        try
-                        {
-                            if (songs[num].Id == songid)
-                            {
-                                break;
-                            }
-                            else if (num == numerofsong - 1)
-                            {
-
-                                for (int namenum = 0; namenum < numerofsong; namenum++)
-                                {
-                                    if (songs[namenum].Name == track.Name)
-                                    {
-                                        break; // we dont want to add the same song twice
-                                        //does this break work?
-                                    }
-                                    else if (namenum == numerofsong - 1)
-                                    {
-                                        songs.Add(((SongStorageContext)storage).Songs.ToList()[i]);
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            // something went wrong, but it's not important
-                            songs.Add(((SongStorageContext)storage).Songs.ToList()[i]);
-                        }
-                    }
-                }
-            }
+            var songs = _unitOfWork.Spotify.GetSongs();
+            return Ok(songs);
         }
-
-        //save the changes, just in case
-        ((SongStorageContext)storage).SaveChanges();
-
-        return Ok(songs);
+        catch (Exception exception)
+        {
+            return BadRequest(exception);
+        }
+        
     }
 
-    private bool SongExists(string id)
+    private bool IsCorrectSpotifyIdLength(string id)
     {
-        return ((SongStorageContext)HttpContext.RequestServices.GetService(typeof(SongStorageContext))).Songs.First(e => e.Id == id) != null;
-    }
-
-    private static bool SpotifyId(object id)
-    {
-        return id.ToString().Length == 22;
+        return id.Length == 22;
     }
 }
